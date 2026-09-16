@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BallotBridge — Decentralized Elections</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy: #080D1A;
+    --navy-mid: #0F172A;
+    --navy-card: #131C30;
+    --navy-border: #1E293B;
+    --blue: #2563EB;
+    --blue-light: #3B82F6;
+    --gold: #F59E0B;
+    --gold-light: #FCD34D;
+    --white: #F8FAFC;
+    --muted: #64748B;
+    --muted-light: #94A3B8;
+    --green: #10B981;
+    --red: #EF4444;
+    --sidebar-w: 240px;
+  }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--navy);
+    color: var(--white);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Layout ── */
+  #app { display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: var(--sidebar-w);
+    background: var(--navy-mid);
+    border-right: 1px solid var(--navy-border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .sidebar-logo {
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid var(--navy-border);
+  }
+  .sidebar-logo h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--white);
+  }
+  .sidebar-logo span {
+    color: var(--gold);
+  }
+  .sidebar-logo p {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  nav { padding: 12px 0; flex: 1; }
+  .nav-section {
+    padding: 6px 16px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    cursor: pointer;
+    color: var(--muted-light);
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 0;
+    transition: background 0.15s, color 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--white); }
+  .nav-item.active {
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--blue-light);
+    border-left-color: var(--blue-light);
+  }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+  .wallet-area {
+    padding: 16px;
+    border-top: 1px solid var(--navy-border);
+  }
+  #connect-btn {
+    width: 100%;
+    padding: 9px 14px;
+    background: var(--blue);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #connect-btn:hover { background: var(--blue-light); }
+  #wallet-info {
+    display: none;
+    font-size: 11px;
+    color: var(--muted-light);
+  }
+  .wallet-addr {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--navy-card);
+    border-radius: 8px;
+    border: 1px solid var(--navy-border);
+  }
+  .wallet-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+  .wallet-addr span { font-family: monospace; font-size: 12px; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wallet-network { margin-top: 6px; color: var(--muted); font-size: 11px; padding-left: 2px; }
+
+  /* ── Main ── */
+  #main {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  #topbar {
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--navy-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--navy-mid);
+    flex-shrink: 0;
+  }
+  .topbar-title { font-size: 16px; font-weight: 600; }
+  .topbar-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  #content { padding: 28px; flex: 1; }
+
+  /* ── Views ── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--white);
+  }
+
+  /* ── Election Grid ── */
+  .election-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .election-card {
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s;
+  }
+  .election-card:hover { border-color: var(--blue); transform: translateY(-2px); }
+  .election-cover {
+    width: 100%;
+    height: 140px;
+    object-fit: cover;
+    background: linear-gradient(135deg, #1e3a6e, #0a1628);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    color: var(--muted);
+  }
+  .election-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .election-body { padding: 16px; }
+  .election-body h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .election-meta { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .badge-active { background: rgba(16,185,129,0.15); color: var(--green); }
+  .badge-ended { background: rgba(100,116,139,0.15); color: var(--muted-light); }
+  .badge-pending { background: rgba(245,158,11,0.15); color: var(--gold); }
+
+  /* ── Forms ── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-grid.cols-1 { grid-template-columns: 1fr; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group.span-2 { grid-column: span 2; }
+  label { font-size: 12px; font-weight: 500; color: var(--muted-light); }
+  input, select, textarea {
+    background: var(--navy-mid);
+    border: 1px solid var(--navy-border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--white);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--blue); }
+  textarea { resize: vertical; min-height: 80px; }
+  select option { background: var(--navy-mid); }
+
+  /* IPFS Upload */
+  .ipfs-box {
+    border: 2px dashed var(--navy-border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .ipfs-box:hover { border-color: var(--blue); background: rgba(37,99,235,0.04); }
+  .ipfs-box.has-file { border-color: var(--green); background: rgba(16,185,129,0.04); }
+  .ipfs-box.uploading { border-color: var(--gold); background: rgba(245,158,11,0.04); }
+  .ipfs-box input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .ipfs-icon { font-size: 28px; margin-bottom: 8px; }
+  .ipfs-label { font-size: 12px; color: var(--muted-light); }
+  .ipfs-preview { margin-top: 10px; font-size: 11px; color: var(--green); font-family: monospace; word-break: break-all; }
+  .ipfs-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; margin: 8px auto 0; display: block; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--blue); color: var(--white); }
+  .btn-primary:hover:not(:disabled) { background: var(--blue-light); }
+  .btn-gold { background: var(--gold); color: #000; }
+  .btn-gold:hover:not(:disabled) { background: var(--gold-light); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted-light);
+    border: 1px solid var(--navy-border);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--navy-card); color: var(--white); }
+  .btn-danger { background: rgba(239,68,68,0.12); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+  .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.2); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn-full { width: 100%; justify-content: center; }
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+
+  /* ── Spinner ── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 0.8s linear infinite; display: inline-block; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    max-width: 340px;
+    z-index: 9999;
+    transition: opacity 0.3s, transform 0.3s;
+    opacity: 0;
+    transform: translateY(10px);
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { background: #052e16; border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; }
+  #toast.error { background: #1c0a0a; border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+  #toast.info { background: #0f1f40; border: 1px solid rgba(37,99,235,0.3); color: #93c5fd; }
+
+  /* ── Modal ── */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #modal-overlay.open { display: flex; }
+  #modal {
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 700px;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .modal-title { font-size: 18px; font-weight: 700; }
+  .modal-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--white); }
+
+  /* ── Election Detail ── */
+  .detail-cover {
+    width: 100%;
+    height: 200px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: linear-gradient(135deg, #1e3a6e, #0a1628);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 60px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .detail-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .detail-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+  .detail-meta-item { font-size: 12px; }
+  .detail-meta-item .key { color: var(--muted); }
+  .detail-meta-item .val { color: var(--white); font-weight: 500; }
+
+  /* ── Candidates ── */
+  .candidates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .candidate-card {
+    background: var(--navy-mid);
+    border: 1px solid var(--navy-border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+  .candidate-card.voteable { cursor: pointer; }
+  .candidate-card.voteable:hover { border-color: var(--blue); }
+  .candidate-card.selected { border-color: var(--blue); background: rgba(37,99,235,0.08); }
+  .candidate-photo {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--navy-card);
+    margin: 0 auto 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    overflow: hidden;
+    border: 2px solid var(--navy-border);
+  }
+  .candidate-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .candidate-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .candidate-party { font-size: 11px; color: var(--muted); }
+  .candidate-votes { font-size: 12px; color: var(--gold); font-weight: 600; margin-top: 6px; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; border-bottom: 1px solid var(--navy-border); margin-bottom: 20px; }
+  .tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab:hover { color: var(--white); }
+  .tab.active { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+
+  /* ── Voters Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--navy-border); }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(30,41,59,0.5); font-family: monospace; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ── Summary Stats ── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-box { background: var(--navy-card); border: 1px solid var(--navy-border); border-radius: 10px; padding: 16px; }
+  .stat-num { font-size: 24px; font-weight: 700; color: var(--white); }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Dashboard stats ── */
+  .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .dash-stat { background: var(--navy-card); border: 1px solid var(--navy-border); border-radius: 12px; padding: 20px; }
+  .dash-stat .num { font-size: 32px; font-weight: 700; }
+  .dash-stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    #sidebar { display: none; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-group.span-2 { grid-column: span 1; }
+    .stats-row, .dash-stats { grid-template-columns: 1fr 1fr; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--navy-border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-text { font-size: 14px; margin-bottom: 6px; color: var(--muted-light); }
+  .empty-sub { font-size: 12px; }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .section-header h2 { font-size: 16px; font-weight: 600; }
+
+  .loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(8,13,26,0.85);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    font-size: 14px;
+    color: var(--muted-light);
+  }
+  .loading-overlay.show { display: flex; }
+  .loading-spinner { font-size: 32px; }
+  .info-box { background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.2); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: #93c5fd; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ── Sidebar ── -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <h1>Ballot<span>Bridge</span></h1>
+      <p>Decentralized Elections</p>
+    </div>
+    <nav>
+      <div class="nav-section">Platform</div>
+      <div class="nav-item active" onclick="showView('dashboard')">
+        <span class="nav-icon">🏛️</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="showView('elections')">
+        <span class="nav-icon">🗳️</span> All Elections
+      </div>
+      <div class="nav-section" style="margin-top:8px">Manage</div>
+      <div class="nav-item" onclick="showView('create')">
+        <span class="nav-icon">➕</span> Create Election
+      </div>
+      <div class="nav-item" onclick="showView('my-elections')">
+        <span class="nav-icon">📋</span> My Elections
+      </div>
+      <div class="nav-item" onclick="showView('my-votes')">
+        <span class="nav-icon">✅</span> My Votes
+      </div>
+    </nav>
+    <div class="wallet-area">
+      <button id="connect-btn" onclick="connectWallet()">Connect Wallet</button>
+      <div id="wallet-info">
+        <div class="wallet-addr">
+          <div class="wallet-dot"></div>
+          <span id="wallet-addr-text">0x0000…0000</span>
+        </div>
+        <div class="wallet-network" id="wallet-network">Network: —</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div id="main">
+    <div id="topbar">
+      <div>
+        <div class="topbar-title" id="topbar-title">Dashboard</div>
+        <div class="topbar-sub" id="topbar-sub">Overview of elections on-chain</div>
+      </div>
+      <button class="btn btn-gold btn-sm" onclick="showView('create')">+ New Election</button>
+    </div>
+
+    <div id="content">
+
+      <!-- ── Dashboard ── -->
+      <div id="view-dashboard" class="view active">
+        <div class="dash-stats">
+          <div class="dash-stat">
+            <div class="num" id="total-elections">—</div>
+            <div class="lbl">Total Elections</div>
+          </div>
+          <div class="dash-stat">
+            <div class="num" id="active-elections">—</div>
+            <div class="lbl">Active Elections</div>
+          </div>
+          <div class="dash-stat">
+            <div class="num" id="ended-elections">—</div>
+            <div class="lbl">Ended Elections</div>
+          </div>
+        </div>
+        <div class="section-header">
+          <h2>Recent Elections</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadElections()">⟳ Refresh</button>
+        </div>
+        <div class="election-grid" id="dashboard-elections">
+          <div class="empty-state"><div class="empty-icon">🗳️</div><div class="empty-text">No elections yet</div><div class="empty-sub">Connect your wallet to load elections</div></div>
+        </div>
+      </div>
+
+      <!-- ── All Elections ── -->
+      <div id="view-elections" class="view">
+        <div class="section-header">
+          <h2>All Elections</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadElections()">⟳ Refresh</button>
+        </div>
+        <div class="election-grid" id="all-elections">
+          <div class="empty-state"><div class="empty-icon">🗳️</div><div class="empty-text">Connect wallet to view elections</div></div>
+        </div>
+      </div>
+
+      <!-- ── Create Election ── -->
+      <div id="view-create" class="view">
+        <div class="card">
+          <div class="card-title">Election Details</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Your Name (Admin)</label>
+              <input type="text" id="f-adminName" placeholder="e.g. John Doe" />
+            </div>
+            <div class="form-group">
+              <label>Election Title</label>
+              <input type="text" id="f-title" placeholder="e.g. Student Union Elections 2025" />
+            </div>
+            <div class="form-group span-2">
+              <label>Description</label>
+              <textarea id="f-desc" placeholder="Describe the purpose and scope of this election…"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Governing Body</label>
+              <input type="text" id="f-body" placeholder="e.g. University Senate" />
+            </div>
+            <div class="form-group">
+              <label>Country</label>
+              <input type="text" id="f-country" placeholder="e.g. Nigeria" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Images</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Cover Photo</label>
+              <div class="ipfs-box" id="cover-box">
+                <input type="file" accept="image/*" onchange="handleImageSelect(this,'cover-box','f-coverPhoto','cover-preview')" />
+                <div class="ipfs-icon">🖼️</div>
+                <div class="ipfs-label">Click to select cover image</div>
+                <div class="ipfs-preview" id="cover-preview"></div>
+              </div>
+              <input type="hidden" id="f-coverPhoto" />
+            </div>
+            <div class="form-group">
+              <label>Governing Body Logo</label>
+              <div class="ipfs-box" id="photo-box">
+                <input type="file" accept="image/*" onchange="handleImageSelect(this,'photo-box','f-photo','photo-preview')" />
+                <div class="ipfs-icon">🏛️</div>
+                <div class="ipfs-label">Click to select logo</div>
+                <div class="ipfs-preview" id="photo-preview"></div>
+              </div>
+              <input type="hidden" id="f-photo" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Schedule</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Registration Opens</label>
+              <input type="datetime-local" id="f-regStart" />
+            </div>
+            <div class="form-group">
+              <label>Registration Closes</label>
+              <input type="datetime-local" id="f-regEnd" />
+            </div>
+            <div class="form-group">
+              <label>Election Starts</label>
+              <input type="datetime-local" id="f-elecStart" />
+            </div>
+            <div class="form-group">
+              <label>Election Ends</label>
+              <input type="datetime-local" id="f-elecEnd" />
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="create-btn" onclick="createElection()">Create Election</button>
+            <button class="btn btn-ghost" onclick="showView('elections')">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── My Elections ── -->
+      <div id="view-my-elections" class="view">
+        <div class="section-header">
+          <h2>Elections I Manage</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadMyElections()">⟳ Refresh</button>
+        </div>
+        <div class="election-grid" id="my-elections-list">
+          <div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No elections found</div><div class="empty-sub">Create your first election above</div></div>
+        </div>
+      </div>
+
+      <!-- ── My Votes ── -->
+      <div id="view-my-votes" class="view">
+        <div class="section-header">
+          <h2>Elections I'm Registered For</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadMyVotes()">⟳ Refresh</button>
+        </div>
+        <div class="election-grid" id="my-votes-list">
+          <div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Not registered in any election</div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Election Detail Modal ── -->
+<div id="modal-overlay" onclick="closeModalOnOverlay(event)">
+  <div id="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title">Election</div>
+        <div class="modal-sub" id="modal-sub"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<!-- ── Loading ── -->
+<div id="loading-overlay" class="loading-overlay">
+  <div class="loading-spinner spin">⚙️</div>
+  <div id="loading-text">Processing…</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────
+const CONTRACT_ADDRESS = '0x51A358bE5c2FaB5D5A0eB06D1855DD740253EB37';
+const PINATA_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXRpb24iOnsiaWQiOiIxZTg0YmJlOS0zOGZkLTQxZDAtYTA3ZS0yOGIyYzQwMjI0MzMiLCJlbWFpbCI6ImplcnlkYW0xNDhAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInBpbl9wb2xpY3kiOnsicmVnaW9ucyI6W3siZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiRlJBMSJ9LHsiZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiTllDMSJ9XSwidmVyc2lvbiI6MX0sIm1mYV9lbmFibGVkIjpmYWxzZSwic3RhdHVzIjoiQUNUSVZFIn0sImF1dGhlbnRpY2F0aW9uVHlwZSI6InNjb3BlZEtleSIsInNjb3BlZEtleUtleSI6IjU0OTcyMTdkMzM4MGUyMmE5MDZiIiwic2NvcGVkS2V5U2VjcmV0IjoiOTg4NzA4MDc5OTA1NjhiZDgyYmQ4YzEyMjBkYWFmZDk1NzNhMGIxMGJhYzFjNGQ4ZjQ1NzA0OTUwOWEzZDc2NyIsImV4cCI6MTc5ODI3Nzc1OX0.45Q6OvDON7RJE4xcI92p2fMEAVQ1SQYAfcUZkIRdt-I'; // Set your Pinata JWT here or via prompt
+const IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
+
+const ABI = [
+  "function createElection(string adminName,string title,string description,string coverPhoto,string governingBody,string country,string photo,uint256 registrationStart,uint256 registrationStop,uint256 electionStart,uint256 electionEnd) external",
+  "function updateElection(uint256 electionId,string adminName,string title,string description,string coverPhoto,string governingBody,string country,string photo,uint256 registrationStart,uint256 registrationStop) external",
+  "function addCandidate(uint256 electionId,string candidateName,string candidatePoliticalParty,string candidatePortrait) external",
+  "function removeCandidate(uint256 electionId,uint256 candidateId) external",
+  "function registerVoter(uint256 electionId,address voterAddress,uint64 OTP,uint256 phoneNumber,uint256 timeRegister) external",
+  "function vote(uint256 electionId,uint256 candidateId) external",
+  "function closeElection(uint256 electionId) external",
+  "function changeElectionAdmin(uint256 electionId,address newAdmin) external",
+  "function getAllElections() external view returns (tuple(tuple(uint256 electionID,address admin,string adminName,string electionTitle,string electionDescription,string electionCoverPhoto,uint256 electionStartTime,uint256 electionEndTime,bool hasStarted,bool hasEnded,uint256 electionTimeCreated,uint256 electionRegistrationStartTime,uint256 electionRegistrationEndTime,string electionCountry,bool electionAvailability,string governingBody,string governingBodyCover) details,tuple(uint256 id,string name,string politicalParty,uint256 addedTime,uint256 voteCount,string candidatePhoto)[] candidates)[])",
+  "function getElectionDetails(uint256 electionId) external view returns (tuple(uint256 electionID,address admin,string adminName,string electionTitle,string electionDescription,string electionCoverPhoto,uint256 electionStartTime,uint256 electionEndTime,bool hasStarted,bool hasEnded,uint256 electionTimeCreated,uint256 electionRegistrationStartTime,uint256 electionRegistrationEndTime,string electionCountry,bool electionAvailability,string governingBody,string governingBodyCover),tuple(uint256 id,string name,string politicalParty,uint256 addedTime,uint256 voteCount,string candidatePhoto)[])",
+  "function getCandidates(uint256 electionId) external view returns (tuple(uint256 id,string name,string politicalParty,uint256 addedTime,uint256 voteCount,string candidatePhoto)[])",
+  "function getElectionSummary(uint256 electionId) external view returns (string title,uint256 totalCandidates,uint256 totalVoters,uint256 votersWhoVoted)",
+  "function getVoterList(uint256 electionId) external view returns (address[])",
+  "function getVotersWhoHaveVoted(uint256 electionId) external view returns (address[])",
+  "function getVoterInfo(uint256 electionId,address voterAddress) external view returns (address,uint256,uint256)",
+  "function getElectionsForVoter(address voter) external view returns (uint256[])",
+  "function electionCount() external view returns (uint256)",
+  "event ElectionCreated(uint256 indexed electionId,address indexed admin,string adminName,string title,string description,string coverPhoto)",
+  "event CandidateAdded(uint256 indexed electionId,uint256 candidateId,string name,string politicalParty,uint256 addedTime)",
+  "event Voted(uint256 indexed electionId,address indexed voterAddress,uint256 candidateId)",
+  "event VoterRegistered(uint256 indexed electionId,address indexed voterAddress)"
+];
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let provider, signer, contract, walletAddress;
+let allElections = [];
+let currentElectionId = null;
+let uploadedImages = {}; // key -> cid
+let pinataJWT = PINATA_JWT;
+
+// ─────────────────────────────────────────────
+//  Wallet
+// ─────────────────────────────────────────────
+async function connectWallet() {
+  if (typeof ethers === 'undefined') return toast('ethers.js failed to load — check your connection and refresh', 'error');
+  if (!window.ethereum) return toast('Please install MetaMask', 'error');
+  try {
+    showLoading('Connecting wallet…');
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send('eth_requestAccounts', []);
+    signer = await provider.getSigner();
+    walletAddress = await signer.getAddress();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+    const network = await provider.getNetwork();
+    document.getElementById('wallet-addr-text').textContent = shortAddr(walletAddress);
+    document.getElementById('wallet-network').textContent = 'Network: ' + (network.name || 'chain ' + network.chainId);
+    document.getElementById('connect-btn').style.display = 'none';
+    document.getElementById('wallet-info').style.display = 'block';
+
+    await loadElections();
+    hideLoading();
+    toast('Wallet connected ✓', 'success');
+  } catch (e) {
+    hideLoading();
+    toast(e.message || 'Connection failed', 'error');
+  }
+}
+
+// ─────────────────────────────────────────────
+//  IPFS Upload via Pinata
+// ─────────────────────────────────────────────
+async function getPinataJWT() {
+  if (pinataJWT) return pinataJWT;
+  const jwt = prompt('Enter your Pinata JWT (for IPFS uploads):');
+  if (jwt) { pinataJWT = jwt.trim(); return pinataJWT; }
+  throw new Error('No Pinata JWT provided');
+}
+
+function handleImageSelect(input, boxId, hiddenId, previewId) {
+  const file = input.files[0];
+  if (!file) return;
+  const box = document.getElementById(boxId);
+  box.classList.add('uploading');
+  // show thumb preview
+  const reader = new FileReader();
+  reader.onload = e => {
+    const existing = box.querySelector('.ipfs-thumb');
+    if (existing) existing.remove();
+    const img = document.createElement('img');
+    img.className = 'ipfs-thumb';
+    img.src = e.target.result;
+    box.appendChild(img);
+    document.getElementById(previewId).textContent = `Selected: ${file.name}`;
+  };
+  reader.readAsDataURL(file);
+  // Upload async
+  uploadToIPFS(file).then(cid => {
+    document.getElementById(hiddenId).value = cid;
+    document.getElementById(previewId).textContent = `✓ ${cid}`;
+    box.classList.remove('uploading');
+    box.classList.add('has-file');
+    toast('Image uploaded to IPFS', 'success');
+  }).catch(e => {
+    box.classList.remove('uploading');
+    document.getElementById(previewId).textContent = '✗ Upload failed';
+    toast('IPFS upload failed: ' + e.message, 'error');
+  });
+}
+
+async function uploadToIPFS(file) {
+  const jwt = await getPinataJWT();
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jwt}` },
+    body: formData
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.details || 'Pinata error');
+  return data.IpfsHash;
+}
+
+function ipfsUrl(cid) {
+  if (!cid) return '';
+  if (cid.startsWith('http')) return cid;
+  return IPFS_GATEWAY + cid;
+}
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+function shortAddr(a) { return a ? a.slice(0,6) + '…' + a.slice(-4) : '—'; }
+function ts(dt) { return Math.floor(new Date(dt).getTime() / 1000); }
+function fmtDate(unix) {
+  if (!unix || unix == 0) return '—';
+  return new Date(Number(unix) * 1000).toLocaleString();
+}
+function elecStatus(d) {
+  const now = Date.now() / 1000;
+  if (!d.electionAvailability) return 'closed';
+  if (d.hasEnded) return 'ended';
+  if (d.hasStarted || Number(d.electionStartTime) <= now) return 'active';
+  return 'pending';
+}
+function statusBadge(d) {
+  const s = elecStatus(d);
+  const map = { active: 'badge-active', ended: 'badge-ended', closed: 'badge-ended', pending: 'badge-pending' };
+  return `<span class="badge ${map[s]}">${s.toUpperCase()}</span>`;
+}
+
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  setTimeout(() => { el.className = ''; }, 3500);
+}
+
+function showLoading(msg = 'Processing…') {
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('loading-overlay').classList.add('show');
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.remove('show');
+}
+
+function requireWallet() {
+  if (!walletAddress) { toast('Connect your wallet first', 'error'); return false; }
+  return true;
+}
+
+// ─────────────────────────────────────────────
+//  Navigation
+// ─────────────────────────────────────────────
+const viewMeta = {
+  dashboard: { title: 'Dashboard', sub: 'Overview of elections on-chain' },
+  elections: { title: 'All Elections', sub: 'Browse and vote in active elections' },
+  create: { title: 'Create Election', sub: 'Set up a new on-chain election' },
+  'my-elections': { title: 'My Elections', sub: 'Elections you administrate' },
+  'my-votes': { title: 'My Votes', sub: 'Elections you are registered in' },
+};
+
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick')?.includes(`'${id}'`)) n.classList.add('active');
+  });
+  const meta = viewMeta[id] || {};
+  document.getElementById('topbar-title').textContent = meta.title || id;
+  document.getElementById('topbar-sub').textContent = meta.sub || '';
+
+  if (id === 'dashboard') loadElections();
+  if (id === 'elections') loadElections();
+  if (id === 'my-elections') loadMyElections();
+  if (id === 'my-votes') loadMyVotes();
+}
+
+// ─────────────────────────────────────────────
+//  Load Elections
+// ─────────────────────────────────────────────
+async function loadElections() {
+  if (!contract) return;
+  try {
+    const raw = await contract.getAllElections();
+    allElections = raw.map(r => ({
+      details: r.details,
+      candidates: r.candidates
+    }));
+    renderDashboard();
+    renderAllElections();
+  } catch (e) {
+    console.error(e);
+    toast('Failed to load elections', 'error');
+  }
+}
+
+function electionCardHTML(e, clickFn) {
+  const d = e.details;
+  const cover = d.electionCoverPhoto ? `<img src="${ipfsUrl(d.electionCoverPhoto)}" onerror="this.style.display='none'" />` : '🗳️';
+  return `
+    <div class="election-card" onclick="${clickFn}(${d.electionID})">
+      <div class="election-cover">${cover}</div>
+      <div class="election-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <h3>${d.electionTitle || 'Untitled'}</h3>
+          ${statusBadge(d)}
+        </div>
+        <div style="font-size:12px;color:var(--muted-light);margin-bottom:6px">${d.governingBody || ''} ${d.electionCountry ? '· ' + d.electionCountry : ''}</div>
+        <div class="election-meta">
+          <span>👥 ${e.candidates.length} candidates</span>
+          <span>📅 ${fmtDate(d.electionStartTime)}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderDashboard() {
+  const total = allElections.length;
+  const active = allElections.filter(e => elecStatus(e.details) === 'active').length;
+  const ended = allElections.filter(e => ['ended','closed'].includes(elecStatus(e.details))).length;
+  document.getElementById('total-elections').textContent = total;
+  document.getElementById('active-elections').textContent = active;
+  document.getElementById('ended-elections').textContent = ended;
+
+  const el = document.getElementById('dashboard-elections');
+  if (!allElections.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🗳️</div><div class="empty-text">No elections yet</div></div>'; return; }
+  el.innerHTML = allElections.slice(-6).reverse().map(e => electionCardHTML(e, 'openElection')).join('');
+}
+
+function renderAllElections() {
+  const el = document.getElementById('all-elections');
+  if (!allElections.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🗳️</div><div class="empty-text">No elections found</div></div>'; return; }
+  el.innerHTML = allElections.map(e => electionCardHTML(e, 'openElection')).join('');
+}
+
+async function loadMyElections() {
+  if (!requireWallet()) return;
+  const el = document.getElementById('my-elections-list');
+  el.innerHTML = '<div class="empty-state"><div class="spin">⚙️</div></div>';
+  await loadElections();
+  const mine = allElections.filter(e => e.details.admin?.toLowerCase() === walletAddress?.toLowerCase());
+  if (!mine.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">You have not created any elections yet</div></div>'; return; }
+  el.innerHTML = mine.map(e => electionCardHTML(e, 'openElection')).join('');
+}
+
+async function loadMyVotes() {
+  if (!requireWallet()) return;
+  const el = document.getElementById('my-votes-list');
+  el.innerHTML = '<div class="empty-state"><div class="spin">⚙️</div></div>';
+  try {
+    const ids = await contract.getElectionsForVoter(walletAddress);
+    if (!ids.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Not registered in any election</div></div>'; return; }
+    await loadElections();
+    const relevant = allElections.filter(e => ids.map(i => Number(i)).includes(Number(e.details.electionID)));
+    el.innerHTML = relevant.map(e => electionCardHTML(e, 'openElection')).join('');
+  } catch (e) { el.innerHTML = '<div class="empty-state"><div class="empty-text">Error loading your elections</div></div>'; }
+}
+
+// ─────────────────────────────────────────────
+//  Create Election
+// ─────────────────────────────────────────────
+async function createElection() {
+  if (!requireWallet()) return;
+  const btn = document.getElementById('create-btn');
+  const fields = {
+    adminName: document.getElementById('f-adminName').value.trim(),
+    title: document.getElementById('f-title').value.trim(),
+    desc: document.getElementById('f-desc').value.trim(),
+    coverPhoto: document.getElementById('f-coverPhoto').value.trim(),
+    body: document.getElementById('f-body').value.trim(),
+    country: document.getElementById('f-country').value.trim(),
+    photo: document.getElementById('f-photo').value.trim(),
+    regStart: document.getElementById('f-regStart').value,
+    regEnd: document.getElementById('f-regEnd').value,
+    elecStart: document.getElementById('f-elecStart').value,
+    elecEnd: document.getElementById('f-elecEnd').value,
+  };
+  if (!fields.adminName || !fields.title || !fields.elecStart || !fields.elecEnd)
+    return toast('Fill in all required fields', 'error');
+  try {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin">⚙️</span> Creating…';
+    showLoading('Sending transaction…');
+    const tx = await contract.createElection(
+      fields.adminName, fields.title, fields.desc,
+      fields.coverPhoto, fields.body, fields.country, fields.photo,
+      ts(fields.regStart) || 0, ts(fields.regEnd) || 0,
+      ts(fields.elecStart), ts(fields.elecEnd)
+    );
+    showLoading('Waiting for confirmation…');
+    await tx.wait();
+    hideLoading();
+    toast('Election created! ✓', 'success');
+    ['f-adminName','f-title','f-desc','f-coverPhoto','f-photo','f-body','f-country','f-regStart','f-regEnd','f-elecStart','f-elecEnd'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('cover-preview').textContent = '';
+    document.getElementById('photo-preview').textContent = '';
+    document.querySelector('#cover-box').className = 'ipfs-box';
+    document.querySelector('#photo-box').className = 'ipfs-box';
+    showView('my-elections');
+  } catch (e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Transaction failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Election';
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Election Detail Modal
+// ─────────────────────────────────────────────
+async function openElection(id) {
+  if (!contract) { toast('Connect wallet first', 'error'); return; }
+  currentElectionId = Number(id);
+  showLoading('Loading election…');
+  try {
+    const [details, candidates] = await contract.getElectionDetails(id);
+    const summary = await contract.getElectionSummary(id);
+    hideLoading();
+    renderElectionModal(details, candidates, summary);
+  } catch(e) {
+    hideLoading();
+    toast('Failed to load election', 'error');
+  }
+}
+
+function renderElectionModal(d, candidates, summary) {
+  document.getElementById('modal-title').textContent = d.electionTitle;
+  document.getElementById('modal-sub').textContent = (d.governingBody || '') + (d.electionCountry ? ' · ' + d.electionCountry : '');
+
+  const isAdmin = walletAddress && d.admin.toLowerCase() === walletAddress.toLowerCase();
+  const status = elecStatus(d);
+
+  let body = '';
+
+  // Cover
+  if (d.electionCoverPhoto) {
+    body += `<div class="detail-cover"><img src="${ipfsUrl(d.electionCoverPhoto)}" onerror="this.parentElement.innerHTML='🗳️'" /></div>`;
+  }
+
+  // Stats
+  body += `<div class="stats-row">
+    <div class="stat-box"><div class="stat-num">${candidates.length}</div><div class="stat-label">Candidates</div></div>
+    <div class="stat-box"><div class="stat-num">${Number(summary.totalVoters)}</div><div class="stat-label">Registered Voters</div></div>
+    <div class="stat-box"><div class="stat-num">${Number(summary.votersWhoVoted)}</div><div class="stat-label">Votes Cast</div></div>
+    <div class="stat-box"><div class="stat-num">${statusBadge(d)}</div><div class="stat-label">Status</div></div>
+  </div>`;
+
+  // Meta
+  body += `<div class="detail-meta">
+    <div class="detail-meta-item"><div class="key">Admin</div><div class="val" style="font-family:monospace">${shortAddr(d.admin)}</div></div>
+    <div class="detail-meta-item"><div class="key">Reg. Window</div><div class="val">${fmtDate(d.electionRegistrationStartTime)} → ${fmtDate(d.electionRegistrationEndTime)}</div></div>
+    <div class="detail-meta-item"><div class="key">Election Window</div><div class="val">${fmtDate(d.electionStartTime)} → ${fmtDate(d.electionEndTime)}</div></div>
+  </div>`;
+
+  if (d.electionDescription) {
+    body += `<p style="font-size:13px;color:var(--muted-light);margin-bottom:20px;line-height:1.6">${d.electionDescription}</p>`;
+  }
+
+  // Tabs
+  body += `<div class="tabs">
+    <div class="tab active" onclick="switchTab(event,'tab-candidates')">Candidates</div>
+    ${isAdmin ? `<div class="tab" onclick="switchTab(event,'tab-manage')">Manage</div>` : ''}
+    <div class="tab" onclick="switchTab(event,'tab-voters');loadVoterList(${d.electionID})">Voters</div>
+  </div>`;
+
+  // Tab: Candidates
+  body += `<div id="tab-candidates" class="tab-content">`;
+  if (candidates.length === 0) {
+    body += `<div class="empty-state"><div class="empty-icon">🙋</div><div class="empty-text">No candidates yet</div></div>`;
+  } else {
+    const canVote = status === 'active';
+    body += `<div class="candidates-grid">`;
+    candidates.forEach(c => {
+      const photo = c.candidatePhoto ? `<img src="${ipfsUrl(c.candidatePhoto)}" onerror="this.parentElement.innerHTML='🙋'" />` : '🙋';
+      body += `<div class="candidate-card${canVote ? ' voteable' : ''}" id="cand-${c.id}" onclick="${canVote ? `selectCandidate(${c.id})` : ''}">
+        <div class="candidate-photo">${photo}</div>
+        <div class="candidate-name">${c.name}</div>
+        <div class="candidate-party">${c.politicalParty}</div>
+        <div class="candidate-votes">🗳 ${c.voteCount} votes</div>
+        ${isAdmin ? `<button class="btn btn-danger btn-sm" style="margin-top:8px;width:100%" onclick="event.stopPropagation();removeCandidate(${d.electionID},${c.id})">Remove</button>` : ''}
+      </div>`;
+    });
+    body += `</div>`;
+    if (canVote) {
+      body += `<div class="btn-row" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="castVote(${d.electionID})">Cast Vote</button>
+        <span style="font-size:12px;color:var(--muted)">Select a candidate above then click Cast Vote</span>
+      </div>`;
+    }
+  }
+  body += `</div>`;
+
+  // Tab: Manage (admin)
+  if (isAdmin) {
+    body += `<div id="tab-manage" class="tab-content" style="display:none">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Add Candidate</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Candidate Name</label>
+            <input type="text" id="cand-name" placeholder="Full name" />
+          </div>
+          <div class="form-group">
+            <label>Political Party / Group</label>
+            <input type="text" id="cand-party" placeholder="Party or affiliation" />
+          </div>
+          <div class="form-group span-2">
+            <label>Portrait Photo</label>
+            <div class="ipfs-box" id="cand-photo-box">
+              <input type="file" accept="image/*" onchange="handleImageSelect(this,'cand-photo-box','cand-photo-cid','cand-photo-preview')" />
+              <div class="ipfs-icon">📷</div>
+              <div class="ipfs-label">Click to upload portrait</div>
+              <div class="ipfs-preview" id="cand-photo-preview"></div>
+            </div>
+            <input type="hidden" id="cand-photo-cid" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addCandidate(${d.electionID})">Add Candidate</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Register Voter</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Voter Address</label>
+            <input type="text" id="voter-addr" placeholder="0x…" />
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="number" id="voter-phone" placeholder="e.g. 2349012345678" />
+          </div>
+          <div class="form-group">
+            <label>OTP (6 digits)</label>
+            <input type="number" id="voter-otp" placeholder="123456" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="registerVoter(${d.electionID})">Register Voter</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Update Election</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Admin Name</label>
+            <input type="text" id="upd-adminName" value="${d.adminName}" />
+          </div>
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="upd-title" value="${d.electionTitle}" />
+          </div>
+          <div class="form-group span-2">
+            <label>Description</label>
+            <textarea id="upd-desc">${d.electionDescription}</textarea>
+          </div>
+          <div class="form-group">
+            <label>Governing Body</label>
+            <input type="text" id="upd-body" value="${d.governingBody}" />
+          </div>
+          <div class="form-group">
+            <label>Country</label>
+            <input type="text" id="upd-country" value="${d.electionCountry}" />
+          </div>
+          <div class="form-group">
+            <label>Reg. Start</label>
+            <input type="datetime-local" id="upd-regStart" />
+          </div>
+          <div class="form-group">
+            <label>Reg. End</label>
+            <input type="datetime-local" id="upd-regEnd" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="updateElection(${d.electionID})">Update Election</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Admin Actions</div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Transfer Admin To</label>
+          <input type="text" id="new-admin-addr" placeholder="0x…" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="changeAdmin(${d.electionID})">Transfer Admin</button>
+          <button class="btn btn-danger" onclick="closeElection(${d.electionID})">Close Election</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Tab: Voters
+  body += `<div id="tab-voters" class="tab-content" style="display:none">
+    <div id="voters-loading" style="text-align:center;padding:20px;color:var(--muted)"><span class="spin">⚙️</span> Loading voters…</div>
+    <div id="voters-content" style="display:none">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Address</th><th>Voted</th></tr></thead>
+          <tbody id="voters-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+let selectedCandidateId = null;
+
+function selectCandidate(id) {
+  selectedCandidateId = id;
+  document.querySelectorAll('.candidate-card.voteable').forEach(c => c.classList.remove('selected'));
+  document.getElementById('cand-' + id)?.classList.add('selected');
+}
+
+function switchTab(event, tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+  event.target.classList.add('active');
+  document.getElementById(tabId).style.display = 'block';
+}
+
+async function loadVoterList(electionId) {
+  try {
+    const [all, voted] = await Promise.all([
+      contract.getVoterList(electionId),
+      contract.getVotersWhoHaveVoted(electionId)
+    ]);
+    const votedSet = new Set(voted.map(a => a.toLowerCase()));
+    const tbody = document.getElementById('voters-table');
+    tbody.innerHTML = all.map((addr, i) => `
+      <tr>
+        <td style="color:var(--muted)">${i+1}</td>
+        <td>${addr}</td>
+        <td>${votedSet.has(addr.toLowerCase()) ? '<span style="color:var(--green)">✓ Voted</span>' : '<span style="color:var(--muted)">Pending</span>'}</td>
+      </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">No voters registered</td></tr>';
+    document.getElementById('voters-loading').style.display = 'none';
+    document.getElementById('voters-content').style.display = 'block';
+  } catch(e) {
+    document.getElementById('voters-loading').textContent = 'Failed to load voters';
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Contract Write Functions
+// ─────────────────────────────────────────────
+async function addCandidate(electionId) {
+  const name = document.getElementById('cand-name').value.trim();
+  const party = document.getElementById('cand-party').value.trim();
+  const photo = document.getElementById('cand-photo-cid').value.trim();
+  if (!name || !party) return toast('Name and party required', 'error');
+  try {
+    showLoading('Adding candidate…');
+    const tx = await contract.addCandidate(electionId, name, party, photo);
+    await tx.wait();
+    hideLoading();
+    toast('Candidate added ✓', 'success');
+    openElection(electionId);
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Failed to add candidate', 'error');
+  }
+}
+
+async function removeCandidate(electionId, candidateId) {
+  if (!confirm('Remove this candidate?')) return;
+  try {
+    showLoading('Removing candidate…');
+    const tx = await contract.removeCandidate(electionId, candidateId);
+    await tx.wait();
+    hideLoading();
+    toast('Candidate removed ✓', 'success');
+    openElection(electionId);
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Failed', 'error');
+  }
+}
+
+async function registerVoter(electionId) {
+  const addr = document.getElementById('voter-addr').value.trim();
+  const phone = document.getElementById('voter-phone').value.trim();
+  const otp = document.getElementById('voter-otp').value.trim();
+  if (!addr || !phone || !otp) return toast('All voter fields required', 'error');
+  try {
+    showLoading('Registering voter…');
+    const tx = await contract.registerVoter(electionId, addr, Number(otp), BigInt(phone), BigInt(Math.floor(Date.now()/1000)));
+    await tx.wait();
+    hideLoading();
+    toast('Voter registered ✓', 'success');
+    document.getElementById('voter-addr').value = '';
+    document.getElementById('voter-phone').value = '';
+    document.getElementById('voter-otp').value = '';
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Failed to register voter', 'error');
+  }
+}
+
+async function castVote(electionId) {
+  if (!selectedCandidateId) return toast('Select a candidate first', 'error');
+  if (!confirm('Confirm your vote? This cannot be undone.')) return;
+  try {
+    showLoading('Casting vote…');
+    const tx = await contract.vote(electionId, selectedCandidateId);
+    await tx.wait();
+    hideLoading();
+    toast('Vote cast successfully ✓', 'success');
+    selectedCandidateId = null;
+    openElection(electionId);
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Vote failed', 'error');
+  }
+}
+
+async function updateElection(electionId) {
+  const adminName = document.getElementById('upd-adminName').value.trim();
+  const title = document.getElementById('upd-title').value.trim();
+  const desc = document.getElementById('upd-desc').value.trim();
+  const body = document.getElementById('upd-body').value.trim();
+  const country = document.getElementById('upd-country').value.trim();
+  const regStart = document.getElementById('upd-regStart').value;
+  const regEnd = document.getElementById('upd-regEnd').value;
+  try {
+    showLoading('Updating election…');
+    const tx = await contract.updateElection(
+      electionId, adminName, title, desc, '', body, country, '',
+      regStart ? ts(regStart) : 0, regEnd ? ts(regEnd) : 0
+    );
+    await tx.wait();
+    hideLoading();
+    toast('Election updated ✓', 'success');
+    openElection(electionId);
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Update failed', 'error');
+  }
+}
+
+async function closeElection(electionId) {
+  if (!confirm('Close this election permanently?')) return;
+  try {
+    showLoading('Closing election…');
+    const tx = await contract.closeElection(electionId);
+    await tx.wait();
+    hideLoading();
+    toast('Election closed ✓', 'success');
+    closeModal();
+    await loadElections();
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Failed to close', 'error');
+  }
+}
+
+async function changeAdmin(electionId) {
+  const newAdmin = document.getElementById('new-admin-addr').value.trim();
+  if (!newAdmin) return toast('Enter new admin address', 'error');
+  if (!confirm(`Transfer admin to ${shortAddr(newAdmin)}?`)) return;
+  try {
+    showLoading('Transferring admin…');
+    const tx = await contract.changeElectionAdmin(electionId, newAdmin);
+    await tx.wait();
+    hideLoading();
+    toast('Admin transferred ✓', 'success');
+    openElection(electionId);
+  } catch(e) {
+    hideLoading();
+    toast(e.reason || e.message || 'Transfer failed', 'error');
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Modal close
+// ─────────────────────────────────────────────
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  currentElectionId = null;
+  selectedCandidateId = null;
+}
+function closeModalOnOverlay(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+}
+
+// ─────────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────────
+window.addEventListener('load', () => {
+  if (window.ethereum) {
+    window.ethereum.on('accountsChanged', () => location.reload());
+    window.ethereum.on('chainChanged', () => location.reload());
+  }
+});
+</script>
+</body>
+</html>
